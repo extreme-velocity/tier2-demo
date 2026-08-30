@@ -1,0 +1,43 @@
+name: Feature Request
+description: Propose a new capability
+labels: ["type/feature"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Check [AGENTS.md](../AGENTS.md) first — the "Footprint Ladder" section
+        describes where new capability belongs (extend existing → CLI+skill →
+        gated module → plugin → external package → core, last resort).
+        Proposals that fit the ladder's lower rungs land much faster.
+  - type: textarea
+    id: problem
+    attributes:
+      label: What problem does this solve?
+      description: The user-facing problem, not the solution. "I can't X" beats "add Y option".
+    validations:
+      required: true
+  - type: textarea
+    id: solution
+    attributes:
+      label: Proposed solution
+      description: What should exist? Why this approach over alternatives?
+    validations:
+      required: true
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives considered
+      description: Including "workaround I use today".
+  - type: dropdown
+    id: footprint
+    attributes:
+      label: Where does this fit best (per the Footprint Ladder)?
+      options:
+        - Extends existing behavior
+        - New CLI command / documented workflow
+        - Gated module (appears only when configured)
+        - Plugin / standalone package
+        - Core surface (justify why!)
+        - Not sure
+    validations:
+      required: true

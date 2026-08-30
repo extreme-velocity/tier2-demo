@@ -1,0 +1,42 @@
+name: get-app-token
+description: >-
+  Mint a short-lived (1-hour) GitHub App installation token, replacing
+  long-lived PATs for trusted automation. App tokens get 5,000 req/hr per
+  installation and are scoped to the App's permissions, not a user
+  account. Callers MUST source credentials from a protected, main-only
+  environment — never pass an App private key to a pull_request job.
+inputs:
+  client-id:
+    description: GitHub App Client ID (pass vars.APP_CLIENT_ID)
+    required: false
+    default: ''
+  private-key:
+    description: GitHub App private key PEM (pass secrets.APP_PRIVATE_KEY)
+    required: false
+    default: ''
+outputs:
+  token:
+    description: 1-hour installation token, or GITHUB_TOKEN fallback
+    value: ${{ steps.app-token.outputs.token || steps.fallback.outputs.token }}
+runs:
+  using: composite
+  steps:
+    - name: Check if App credentials exist
+      id: check
+      shell: bash
+      env:
+        CLIENT_ID: ${{ inputs.client-id }}
+      run: |
+        [ -n "$CLIENT_ID" ] && echo "has_app=true" >> "$GITHUB_OUTPUT" || echo "has_app=false" >> "$GITHUB_OUTPUT"
+    - name: Create App token
+      id: app-token
+      if: steps.check.outputs.has_app == 'true'
+      uses: actions/create-github-app-token@6e85b4a1da3b8e193532d7f5a9f11b1c49e6b91f # v2.1.4
+      with:
+        client-id: ${{ inputs.client-id }}
+        private-key: ${{ inputs.private-key }}
+    - name: Fall back to GITHUB_TOKEN
+      id: fallback
+      if: steps.check.outputs.has_app != 'true'
+      shell: bash
+      run: echo "token=${{ github.token }}" >> "$GITHUB_OUTPUT"

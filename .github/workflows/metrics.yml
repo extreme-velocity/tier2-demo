@@ -1,0 +1,36 @@
+name: Repo Velocity Metrics
+
+# Weekly velocity + triage health report, posted as a comment on a pinned
+# "Dashboard" issue (or written to the run summary). The same script runs
+# locally: `python scripts/repo_metrics.py --markdown`.
+#
+# What hermes-agent's numbers looked like at full scale (the report tells
+# you where YOU are on that curve):
+#   175 commits/day, median PR merge 21.8 min, 92% conventional titles,
+#   89% of merges without formal review, 17.7K items triaged by AI.
+
+on:
+  schedule:
+    - cron: "30 13 * * 1" # Mondays 13:30 UTC
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  issues: write
+
+jobs:
+  metrics:
+    name: Generate velocity report
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5.6.0
+        with:
+          python-version: "3.12"
+      - name: Compute metrics
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}  # script reads GH_TOKEN
+          REPO: ${{ github.repository }}
+          DASHBOARD_ISSUE: ${{ vars.DASHBOARD_ISSUE }}
+        run: python3 scripts/repo_metrics.py --post

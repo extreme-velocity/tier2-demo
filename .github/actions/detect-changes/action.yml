@@ -1,0 +1,97 @@
+name: detect-changes
+description: >
+  Classify the diff into CI lanes. Outputs key=true booleans consumed by
+  `if:` conditions in ci.yml. Contract: fail open, never closed — an
+  empty diff or any .github/ change runs everything.
+outputs:
+  python:
+    description: "python lane triggered"
+    value: ${{ steps.changes.outputs.python }}
+  typescript:
+    description: "typescript lane triggered"
+    value: ${{ steps.changes.outputs.typescript }}
+  docs:
+    description: "docs lane triggered"
+    value: ${{ steps.changes.outputs.docs }}
+  ci:
+    description: "ci lane triggered"
+    value: ${{ steps.changes.outputs.ci }}
+runs:
+  using: composite
+  steps:
+    - id: changes
+      shell: bash
+      run: |
+        set -euo pipefail
+        # Resolve the diff range. CRITICAL GitHub Actions detail: the default
+        # checkout on pull_request contains ONLY the merge commit (depth 1) —
+        # neither base.sha nor head.sha exist as objects, so `git diff A B`
+        # fails and a naive script silently falls back to `git ls-files`
+        # (every lane fires on every PR — the lane system becomes a no-op).
+        # Fix: explicitly fetch BOTH refs at depth 1 — `git diff` between two
+        # commits needs only their trees, not history.
+        if [ "${{ github.event_name }}" = "pull_request" ]; then
+          BASE="${{ github.event.pull_request.base.sha }}"
+          HEAD="${{ github.event.pull_request.head.sha }}"
+        else
+          # Push: diff everything since the previous push. github.event.before
+          # covers multi-commit pushes (HEAD~1 does not); on the branch's
+          # first push (or force-push) before is all-zeros → fail open.
+          BASE="${{ github.event.before }}"
+          HEAD="${{ github.sha }}"
+          if [ "$BASE" = "0000000000000000000000000000000000000000" ]; then
+            BASE=""
+          fi
+        fi
+        # Fetch BOTH refs BEFORE the cat-file guards — the push-event
+        # checkout is depth-1, so event.before is never local until fetched
+        # (guarding first made the push path always fall back to ls-files).
+        git fetch origin "$HEAD" --depth=1 2>/dev/null || true
+        if [ -n "$BASE" ]; then
+          git fetch origin "$BASE" --depth=1 2>/dev/null || true
+        fi
+        if [ -z "$BASE" ] || ! git cat-file -e "$BASE^{commit}" 2>/dev/null; then
+          BASE=$(git rev-parse --verify HEAD~1 2>/dev/null || true)
+        fi
+        FILES=""
+        if [ -n "$BASE" ] && git cat-file -e "$BASE^{commit}" 2>/dev/null \
+           && git cat-file -e "$HEAD^{commit}" 2>/dev/null; then
+          FILES=$(git diff --name-only "$BASE" "$HEAD" 2>/dev/null || true)
+        fi
+        # Fail open, never closed: unknown diff → run everything
+        if [ -z "$FILES" ]; then
+          FILES=$(git ls-files)
+        fi
+
+        # Initialize every lane explicitly — a bare `python=typescript=false`
+        # assigns the STRING "typescript=false" to python and leaves the rest
+        # UNSET, which `set -u` turns into a crash. (Real bug, shipped day
+        # one; masked because every early commit touched .github/.)
+        python=false
+        typescript=false
+        docs=false
+        ci=false
+        if [ -z "$FILES" ]; then
+          python=true
+          typescript=true
+          docs=true
+          ci=true
+        fi
+        while IFS= read -r f; do
+          case "$f" in
+            .github/*) ci=true; python=true; typescript=true; docs=true ;;
+            python/*|scripts/*.py|*.py) python=true ;;
+            typescript/*|*.ts|*.tsx|*.js|*.mjs|*.cjs) typescript=true ;;
+            *.md|docs/*) docs=true ;;
+            # CI-sensitive configs feed the ci lane (label gate coverage).
+            # Keep this list in sync with ci-review-label.yml.
+            ruff.toml|biome.json|.pre-commit-config.yaml|*/pyproject.toml|*/package.json|*/package-lock.json) ci=true; python=true; typescript=true ;;
+            *) python=true; typescript=true ;;  # unrecognized → run everything
+          esac
+        done <<< "$FILES"
+
+        echo "python=$python" >> "$GITHUB_OUTPUT"
+        echo "typescript=$typescript" >> "$GITHUB_OUTPUT"
+        echo "docs=$docs" >> "$GITHUB_OUTPUT"
+        echo "ci=$ci" >> "$GITHUB_OUTPUT"
+        cat "$GITHUB_OUTPUT"

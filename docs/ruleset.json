@@ -1,0 +1,43 @@
+{
+  "$comment": "Branch-protection ruleset for the tier2 (public OSS) posture. Apply with: gh api -X POST repos/OWNER/REPO/rulesets --input docs/ruleset.json (org repos: /orgs/ORG/rulesets). Requires exactly ONE check — the aggregate gate 'All required checks pass' — never individual lane jobs (skipped lanes would block merges forever). Rulesets are FREE for public repos; private repos need GitHub Pro. NOTE: the pull_request rule blocks ALL direct pushes to main — including the release bot's. If you run release.yml on this repo, either add a bypass_actors entry for the release identity ([{actor_id: <id>, actor_type: Integration|User, bypass_mode: always}]) or have the release workflow work through a PR.",
+  "name": "kit-aggregate-gate",
+  "target": "branch",
+  "enforcement": "active",
+  "conditions": {
+    "ref_name": {
+      "include": ["~DEFAULT_BRANCH"],
+      "exclude": []
+    }
+  },
+  "rules": [
+    {
+      "type": "required_status_checks",
+      "parameters": {
+        "strict_required_status_checks_policy": false,
+        "required_status_checks": [
+          {
+            "context": "All required checks pass",
+            "integration_id": null
+          }
+        ]
+      }
+    },
+    {
+      "type": "pull_request",
+      "parameters": {
+        "required_approving_review_count": 0,
+        "dismiss_stale_reviews_on_push": true,
+        "require_code_owner_review": false,
+        "require_last_push_approval": false,
+        "required_review_thread_resolution": true
+      }
+    },
+    {
+      "type": "non_fast_forward"
+    },
+    {
+      "$comment": "deletions of the default branch are refused",
+      "type": "deletion"
+    }
+  ]
+}

@@ -1,0 +1,45 @@
+[project]
+name = "aikit"
+version = "0.1.0"
+description = "Python side of the ai-velocity-kit template"
+readme = "README.md"
+requires-python = ">=3.11"
+license = { text = "MIT" }
+dependencies = []
+
+[dependency-groups]
+dev = [
+    "pytest>=8.0,<9",
+    "ruff>=0.16,<0.19",  # pre-1.0: ceiling at minor+2 per the pinning policy in AGENTS.md
+]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/aikit"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+src = ["src", "tests"]
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "UP", "B", "SIM", "RUF"]
+# RUF012: mutable class attrs — fine with explicit annotation style
+ignore = ["RUF012"]
+
+[tool.ruff.lint.per-file-ignores]
+# Automation scripts run in CI one-shots: broad exception capture is the
+# retry contract, naive datetimes are fine (UTC-posted), shebangs are
+# called via `python3 x.py` explicitly.
+"scripts/*" = ["BLE001", "DTZ011", "EXE001", "SIM115", "RUF046", "FURB", "UP017"]
+
+[tool.ruff.format]
+# scripts/ keep their own style; excluded from format enforcement
+exclude = ["scripts"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-q"

@@ -1,0 +1,19 @@
+{
+  "name": "aikit-ts",
+  "version": "0.1.2",
+  "private": true,
+  "type": "module",
+  "description": "TypeScript side of the ai-velocity-kit template",
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "lint": "biome check src tests",
+    "lint:fix": "biome check --write src tests"
+  },
+  "devDependencies": {
+    "@biomejs/biome": "^1.9.4",
+    "typescript": "^5.6.0",
+    "vitest": "^2.1.0"
+  }
+}

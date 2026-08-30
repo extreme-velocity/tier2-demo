@@ -1,0 +1,30 @@
+version: 2
+updates:
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+    groups:
+      actions:
+        patterns: ["*"]
+    labels: ["chore", "ci"]
+  - package-ecosystem: pip
+    directory: /python
+    schedule:
+      interval: weekly
+    groups:
+      python-dev:
+        dependency-type: development
+      python-prod:
+        dependency-type: production
+    labels: ["chore", "deps"]
+  - package-ecosystem: npm
+    directory: /typescript
+    schedule:
+      interval: weekly
+    groups:
+      npm-dev:
+        dependency-type: development
+      npm-prod:
+        dependency-type: production
+    labels: ["chore", "deps"]

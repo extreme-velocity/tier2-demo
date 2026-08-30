@@ -1,0 +1,82 @@
+name: Label Rerun
+
+# When the `ci-reviewed` label is added to a PR, re-run the failed jobs of
+# the latest CI run for that head SHA. This closes the loop on the label
+# gate: the maintainer adds the label, this workflow makes the previously
+# failing `ci-label-gate` (and the aggregate `all-checks-pass`) re-evaluate
+# without anyone clicking "re-run" manually.
+#
+# Ported from hermes-agent's label-rerun.yml. `gh run rerun` only works on
+# COMPLETED runs, so this waits for an in-progress run first (their comment:
+# the wait used to be long when the comment poller lived in CI; ours is
+# short because every lane is fast).
+#
+# NOTE: on: pull_request [labeled] does NOT re-trigger ci.yml itself —
+# that's exactly why this workflow exists.
+
+on:
+  pull_request:
+    types: [labeled]
+
+permissions:
+  actions: write
+  pull-requests: read
+
+concurrency:
+  group: label-rerun-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  rerun-failed:
+    name: Re-run failed CI jobs
+    if: github.event.label.name == 'ci-reviewed'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Wait for CI run, then rerun failed jobs
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REPO: ${{ github.repository }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: |
+          set -uo pipefail
+
+          # Find the latest CI run for this PR's head SHA.
+          RUN_INFO=$(gh run list \
+            --repo "$REPO" \
+            --commit "$HEAD_SHA" \
+            --workflow ci.yml \
+            --limit 1 \
+            --json databaseId,status \
+            --jq '.[0] | if . then "\(.databaseId) \(.status)" else empty end' 2>/dev/null || true)
+
+          if [ -z "$RUN_INFO" ]; then
+            echo "No CI run found for this PR — nothing to rerun."
+            exit 0
+          fi
+
+          RUN_ID="${RUN_INFO%% *}"
+          STATUS="${RUN_INFO##* }"
+          echo "Latest CI run: $RUN_ID (status: $STATUS)"
+
+          # gh run rerun only works on completed runs — if still in
+          # progress, wait (up to 15 min). gh run watch exits non-zero when
+          # the run fails, which is EXPECTED here (the label gate failed);
+          # don't let that kill this workflow.
+          if [ "$STATUS" != "completed" ]; then
+            echo "Run is $STATUS — waiting for completion…"
+            timeout 900 gh run watch "$RUN_ID" --repo "$REPO" --interval 15 || true
+            STATUS=$(gh run view "$RUN_ID" --repo "$REPO" --json status --jq '.status' 2>/dev/null || echo "unknown")
+            if [ "$STATUS" != "completed" ]; then
+              echo "Run still $STATUS after wait — giving up."
+              exit 0
+            fi
+          fi
+
+          echo "Run completed. Rerunning failed jobs…"
+          if gh run rerun "$RUN_ID" --repo "$REPO" --failed; then
+            echo "Done — the label gate and aggregate check will re-evaluate."
+          else
+            echo "::error::gh run rerun failed (run $RUN_ID) — rerun only works on completed runs; check the run state."
+            exit 1
+          fi

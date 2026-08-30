@@ -1,0 +1,130 @@
+name: auto-fix lint & formatting
+
+# On push to main, run the linters' --fix mode and apply changes via an
+# auto-merging PR. Fixable issues never block PRs — they're corrected on
+# merge. (Upstream: hermes-agent's js-autofix; 484 autofix PRs, 245
+# direct commits via a dedicated GitHub App.)
+#
+# ── Security model: two-job split ──────────────────────────────────────
+# The linter executes repo code (configs, plugins). To keep a malicious
+# PR from getting arbitrary code execution on a privileged runner:
+#
+#   1. generate-patch (UNPRIVILEGED, contents: read only)
+#      Checks out, installs deps, runs --fix, uploads a .patch artifact.
+#      Worst case: untrusted code runs on an ephemeral runner with zero
+#      write permissions.
+#
+#   2. apply-patch (PRIVILEGED, contents + pull-requests: write)
+#      Downloads the patch, applies, pushes to bot/autofix, opens/updates
+#      a PR, enables auto-merge. NEVER runs npm/pip, never executes repo
+#      code. The only input it trusts is the patch artifact.
+#
+# Loop prevention: pushes made with a GitHub App token DO re-trigger
+# workflows. The concurrency group + cancel-in-progress stops the loop:
+# the re-triggered run finds no new fixes (the first applied them) and
+# exits with an empty patch.
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read # apply-patch job overrides to write
+
+concurrency:
+  group: autofix-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  generate-patch:
+    name: Generate lint-fix patch (unprivileged)
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+      - uses: astral-sh/setup-uv@d4b2f3b6ecc6e67c4457f6d3e41ec42d3d0fcb86 # v5.4.2
+      - name: Run fixers
+        run: |
+          set -euo pipefail
+          # Python: ruff fix + format
+          uvx ruff@0.16.5 check --fix python/ scripts/ || true
+          uvx ruff@0.16.5 format python/ scripts/ || true
+          # TypeScript: biome fix
+          if [ -f typescript/package.json ]; then
+            cd typescript && npm ci --no-audit --no-fund && npx biome check --write src tests || true
+          fi
+      - name: Produce patch
+        run: |
+          if git diff --quiet; then
+            echo "has_fixes=false" >> "$GITHUB_OUTPUT"
+          else
+            git diff > /tmp/autofix.patch
+            echo "has_fixes=true" >> "$GITHUB_OUTPUT"
+          fi
+        id: fix
+      - name: Upload patch artifact
+        if: steps.fix.outputs.has_fixes == 'true'
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: autofix-patch
+          path: /tmp/autofix.patch
+    outputs:
+      has_fixes: ${{ steps.fix.outputs.has_fixes }}
+
+  apply-patch:
+    name: Apply patch via PR (privileged, runs no repo code)
+    needs: generate-patch
+    if: needs.generate-patch.outputs.has_fixes == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: write
+      pull-requests: write
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          # Replace with a GitHub App token for pushes that re-trigger CI
+          # (default GITHUB_TOKEN pushes do NOT trigger workflows — fine
+          # for the basic setup; see the ai-velocity-kit repo's playbooks)
+          token: ${{ secrets.AUTOFIX_TOKEN || secrets.GITHUB_TOKEN }}
+      - name: Download patch
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          name: autofix-patch
+          path: /tmp
+      - name: Apply and push
+        run: |
+          set -euo pipefail
+          git config user.name "autofix-bot"
+          git config user.email "actions@github.com"
+          git checkout -B bot/autofix
+          git apply --3way /tmp/autofix.patch
+          # NOTE: compare against HEAD, not the index — `git apply --3way`
+          # STAGES its result, so plain `git diff --quiet` reports "no
+          # changes" and the patch is silently dropped. (Found live: the
+          # runner logged "Applied patch cleanly" then "patch empty".)
+          if git diff HEAD --quiet && git diff --cached --quiet; then
+            echo "patch empty after apply"; exit 0
+          fi
+          git add -A
+          git commit -m "style: apply lint --fix on merge (autofix)"
+          git push origin bot/autofix --force
+      - name: Open/refresh PR with auto-merge
+        env:
+          GH_TOKEN: ${{ secrets.AUTOFIX_TOKEN || secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          # `// empty`: jq prints the STRING "null" on an empty list, which
+          # defeats the -z check (create path skipped; merge "null" fails).
+          PR=$(gh pr list --head bot/autofix --json number --jq '.[0].number // empty' || true)
+          if [ -z "$PR" ]; then
+            # Fail loudly on real errors (e.g. "GitHub Actions is not permitted
+            # to create or approve pull requests" — enable that repo setting,
+            # or provide AUTOFIX_TOKEN). Silent success here once hid a fully
+            # broken loop while the workflow showed green.
+            gh pr create --head bot/autofix --title "style: lint autofix" \
+              --body "Automated lint/format fixes applied on merge to main. Auto-merges when CI passes."
+            PR=$(gh pr list --head bot/autofix --json number --jq '.[0].number // empty')
+          fi
+          gh pr merge "$PR" --squash --auto --delete-branch || true

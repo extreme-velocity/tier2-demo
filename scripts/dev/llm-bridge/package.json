@@ -1,0 +1,13 @@
+{
+  "name": "llm-bridge",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Exposes a local/SDK LLM as an OpenAI-compatible /v1/chat/completions endpoint, so the kit's AI fleet scripts (ai_review.py, sweeper.py) can be tested with zero API keys.",
+  "scripts": {
+    "start": "node server.mjs"
+  },
+  "dependencies": {
+    "z-ai-web-dev-sdk": "*"
+  }
+}

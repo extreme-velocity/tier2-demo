@@ -1,0 +1,17 @@
+# Maintainer roster — one GitHub login per line. '#' starts a comment.
+#
+# The triage sweeper NEVER closes, labels-as-risky, or comments on items
+# authored by anyone in this file (upstream behavior: maintainer work is
+# never swept). It is also the list of humans who may add the
+# `ci-reviewed` label and execute close recommendations.
+#
+# SAFETY INTERLOCK: this file ships EMPTY on purpose. Until you list your
+# maintainers here, the sweeper refuses to close anything even with close
+# authority enabled (SWEEPER_ALLOW_CLOSES=1) — the roster is the arming
+# switch. Fill it in as your first tier-2 / sweeper setup step:
+#
+#   echo "your-github-login" >> contributors/maintainers.txt
+#
+# (Without a roster entry for a login, the sweeper may act on that
+# person's items — including closing them.)
+#

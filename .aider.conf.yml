@@ -1,0 +1,33 @@
+# Aider configuration — multi-tool AI stack support
+# Docs: https://aider.chat/docs/config/aider_conf.html
+
+# Model (override with --model or env)
+model: anthropic/claude-sonnet-4-5
+
+# Diff-based edits (reviewable patches, no whole-file rewrites)
+edit-format: diff
+
+# Repo map tuning: keep the map small on big repos
+map-tokens: 2048
+
+# Commit conventions: aider auto-commits with conventional messages
+auto-commits: true
+attribute-author: aider
+attribute-committer: aider
+attribute-commit-message-author: "Co-Authored-By: aider (gpt/claude) <noreply@aider.chat>"
+attribute-commit-message-committer: "Co-Authored-By: aider (gpt/claude) <noreply@aider.chat>"
+
+# Never touch CI, secrets, or lockfiles without explicit instruction
+read:
+  - .github/workflows/**
+  - .env.example
+dont-git-commit:
+  - .env
+  - .env.*
+
+# Tests: run the fast lane after each edit cycle
+test-cmd: make test
+auto-test: true
+
+lint-cmd: make lint
+auto-lint: true

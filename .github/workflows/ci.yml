@@ -1,0 +1,157 @@
+name: CI
+
+# Lane-based CI with a single aggregate gate — the tier0 core.
+#
+# Patterns (from hermes-agent, scaled to any repo):
+#   1. `detect` classifies the diff into lanes; every downstream job gates
+#      on its lane → a docs-only PR runs in seconds, not minutes.
+#   2. `all-checks-pass` aggregates ALL jobs so branch protection requires
+#      exactly ONE check. Adding jobs never requires touching protection
+#      settings again.
+#   3. Fail open, never closed: an empty diff or any .github/ change runs
+#      EVERYTHING. We may run a lane we didn't need; we must never skip a
+#      lane a change could break.
+#
+# Tier2 = tier1 + public-OSS posture: attribution check (contributor
+# email map, the salvage guard) and the ci-label gate (CI-sensitive
+# changes require a maintainer's `ci-reviewed` label).
+#
+# SECURITY: this workflow runs PR-controlled code (tests, linters).
+# Never add `secrets: inherit` or privileged tokens here.
+#
+# The python/typescript lanes are the worked example — replace with your
+# stack's lint+test lanes (keep the `if: needs.detect.outputs.<lane> == 'true'`
+# contract and add new lanes to detect-changes).
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  detect:
+    name: Detect changed lanes
+    runs-on: ubuntu-latest
+    outputs:
+      python: ${{ steps.changes.outputs.python }}
+      typescript: ${{ steps.changes.outputs.typescript }}
+      docs: ${{ steps.changes.outputs.docs }}
+      ci: ${{ steps.changes.outputs.ci }}
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+      - uses: ./.github/actions/detect-changes
+        id: changes
+
+  python-lint:
+    name: Python lint (ruff)
+    needs: detect
+    if: needs.detect.outputs.python == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+      - uses: astral-sh/setup-uv@d4b2f3b6ecc6e67c4457f6d3e41ec42d3d0fcb86 # v5.4.2
+      - run: uvx ruff@0.16.5 check python/ scripts/
+      - run: uvx ruff@0.16.5 format --check python/ scripts/
+
+  python-tests:
+    name: Python tests
+    needs: detect
+    if: needs.detect.outputs.python == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+      - uses: astral-sh/setup-uv@d4b2f3b6ecc6e67c4457f6d3e41ec42d3d0fcb86 # v5.4.2
+      - run: cd python && uv sync && uv run pytest -q
+
+  ts-lint:
+    name: TS lint (biome)
+    needs: detect
+    if: needs.detect.outputs.typescript == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+      - run: cd typescript && npm ci && npx biome check src tests
+
+  ts-tests:
+    name: TS tests (vitest)
+    needs: detect
+    if: needs.detect.outputs.typescript == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+      - run: cd typescript && npm ci && npm test
+
+  attribution-check:
+    name: Contributor attribution
+    needs: detect
+    if: github.event_name == 'pull_request'
+    uses: ./.github/workflows/attribution-check.yml
+
+  ci-label-gate:
+    name: CI-sensitive change review
+    needs: detect
+    if: github.event_name == 'pull_request' && needs.detect.outputs.ci == 'true'
+    # Job-level grant at the CALL SITE — a called workflow can only
+    # DOWNGRADE the caller's token, never elevate it. Without this, the
+    # gate's `gh pr view` runs contents-read-only and 403s on private repos.
+    permissions:
+      contents: read
+      pull-requests: read
+    uses: ./.github/workflows/ci-review-label.yml
+
+  history-check:
+    name: History check
+    needs: detect
+    if: github.event_name == 'pull_request'
+    uses: ./.github/workflows/history-check.yml
+
+  all-checks-pass:
+    name: All required checks pass
+    needs:
+      - detect
+      - history-check
+      - attribution-check
+      - ci-label-gate
+      - python-lint
+      - python-tests
+      - ts-lint
+      - ts-tests
+    if: always()
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Verify all jobs
+        env:
+          RESULTS: ${{ toJSON(needs) }}
+        run: |
+          python3 - <<'EOF'
+          import json, os, sys
+          results = json.loads(os.environ["RESULTS"])
+          failed = []
+          for job, info in results.items():
+              outcome = info["result"]
+              if job == "detect":
+                  # The classifier itself must succeed — a broken classifier
+                  # silently skipping every lane is exactly the failure this
+                  # gate exists to prevent.
+                  if outcome != "success":
+                      failed.append(f"{job}: {outcome}")
+                  continue
+              if outcome not in ("success", "skipped"):
+                  failed.append(f"{job}: {outcome}")
+          if failed:
+              print("FAILED jobs:\n" + "\n".join(failed))
+              sys.exit(1)
+          print("All required checks passed.")
+          EOF

@@ -1,0 +1,82 @@
+name: CI Review Label Gate
+
+# Require a maintainer's explicit `ci-reviewed` label when CI-sensitive
+# files change (workflows, actions, linter/CI config). Defense-in-depth
+# for the automation itself: the fleet never approves, and changes to the
+# machinery that runs the fleet get a human ritual even from maintainers.
+#
+# Ported from hermes-agent's review-labels.yml, which consolidated two
+# separate label gates into one after realizing "the human reads the
+# comment, not the label name". Their scale: every workflow/action change
+# on a 238K-star repo passes through this check.
+#
+# Flow: ci.yml calls this when the `ci` lane fired → this checks the PR's
+# labels → fails without `ci-reviewed` → maintainer adds the label →
+# label-rerun.yml re-runs the failed jobs. ~5 seconds of maintainer
+# attention per CI-sensitive PR; that's the entire cost.
+#
+# Extend the sensitive-path list in the SENSITIVE match below (lockfiles,
+# security-critical configs, your equivalent of an MCP catalog).
+
+on:
+  workflow_call:
+
+permissions:
+  contents: read
+  pull-requests: read
+
+jobs:
+  check-label:
+    name: Verify ci-reviewed label
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          fetch-depth: 2
+
+      - name: Detect CI-sensitive changes
+        id: sensitive
+        env:
+          BASE: ${{ github.event.pull_request.base.sha }}
+          HEAD: ${{ github.event.pull_request.head.sha }}
+        run: |
+          set -euo pipefail
+          git fetch origin "${BASE}" --depth=1 2>/dev/null || true
+          # Fail open on classification weirdness: if we can't compute the
+          # diff, treat as sensitive (the check runs; a maintainer labels).
+          FILES=$(git diff --name-only "${BASE}" "${HEAD}" 2>/dev/null || git ls-files)
+          # Each alternative needs its OWN anchor: a single trailing `$`
+          # after the group anchors the whole alternation, which silently
+          # kills the `^\.github/` branch (a path like .github/workflows/ci.yml
+          # never matches ".github/" exactly). Real bug caught in peer review.
+          # Keep this list in sync with detect-changes/action.yml's ci lane.
+          MATCHES=$(echo "$FILES" | grep -E '^\.github/.*|(^|/)(ruff\.toml|biome\.json|\.pre-commit-config\.yaml|pyproject\.toml|package(-lock)?\.json)$' || true)
+          if [ -n "$MATCHES" ]; then
+            echo "sensitive=true" >> "$GITHUB_OUTPUT"
+            echo "CI-sensitive files in this PR:"; echo "$MATCHES"
+          else
+            echo "sensitive=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Check for ci-reviewed label
+        id: label
+        if: steps.sensitive.outputs.sensitive == 'true'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REPO: ${{ github.repository }}
+          PR: ${{ github.event.pull_request.number }}
+        run: |
+          set -euo pipefail
+          if gh pr view "$PR" --repo "$REPO" --json labels --jq '.labels[].name' | grep -Fxq 'ci-reviewed'; then
+            echo "ci-reviewed label present."
+            echo "present=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "present=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Fail without maintainer review
+        if: steps.sensitive.outputs.sensitive == 'true' && steps.label.outputs.present != 'true'
+        run: |
+          echo "::error::This PR changes CI-sensitive files (workflows, actions, lint/CI config). A maintainer must add the 'ci-reviewed' label after reviewing those changes. The label gate re-runs automatically once the label is added."
+          exit 1

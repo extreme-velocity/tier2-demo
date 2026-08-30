@@ -1,0 +1,68 @@
+name: Contributor Attribution Check
+
+# Fails a PR whose commits carry an author email that is NOT mapped in
+# contributors/emails/. This is the guard for the SALVAGE workflow:
+#
+# When maintainers re-implement or rebase community work under their own
+# PR (e.g., the fix is already on main, or the original PR is unmergeable),
+# the commit gets re-authored to the contributor's GitHub identity so they
+# keep the credit. The contributors/emails/ directory (ONE FILE PER EMAIL)
+# maps commit-author emails → GitHub logins.
+#
+# Why one file per email (not a dict in a script)? Every salvage PR edits
+# the map — a single dict caused constant merge conflicts upstream; file
+# additions never conflict.
+#
+# The failure message prints the exact command to fix the map.
+
+on:
+  workflow_call:
+
+permissions:
+  contents: read
+
+jobs:
+  check-attribution:
+    name: Check contributor emails
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          fetch-depth: 0
+      - name: Check for unmapped contributor emails
+        run: |
+          set -euo pipefail
+          git fetch origin main --depth=1000
+          MERGE_BASE=$(git merge-base origin/main HEAD)
+          NEW_EMAILS=$(git log ${MERGE_BASE}..HEAD --format='%ae' --no-merges | sort -u)
+
+          [ -z "$NEW_EMAILS" ] && echo "No new commits to check." && exit 0
+
+          UNMAPPED=""
+          while IFS= read -r email; do
+            # Emails that never need a mapping (upstream's list, plus the
+            # AI-agent domains their commits arrive under):
+            #   - GitHub noreply addresses auto-resolve
+            #   - CI/bot service identities
+            #   - AI coding-agent identities (Claude/Cursor/Copilot/Codex)
+            # Extend this list with YOUR agent/tool domains — an unmapped
+            # agent email should fail loudly, a known one should pass.
+            if echo "$email" | grep -qE '(users\.noreply\.github\.com|@github\.com|@anthropic\.com|@cursor\.com|@openai\.com|@aider\.chat|@copilot\.com|@gemini\.google\.com)$'; then
+              continue
+            fi
+            if [ ! -f "contributors/emails/$email" ]; then
+              UNMAPPED="$UNMAPPED $email"
+            fi
+          done <<< "$NEW_EMAILS"
+
+          if [ -n "$UNMAPPED" ]; then
+            echo "❌ Unmapped contributor email(s):$UNMAPPED"
+            echo ""
+            echo "Map each one so salvage/merge work preserves authorship:"
+            for e in $UNMAPPED; do
+              echo "  echo \"<github-login>\" > contributors/emails/$e"
+            done
+            exit 1
+          fi
+          echo "All contributor emails mapped."

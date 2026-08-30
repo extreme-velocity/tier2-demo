@@ -1,0 +1,90 @@
+name: Triage Sweeper
+
+# Scheduled AI triage of the backlog: labels, clusters, and — within strict
+# limits — closes PRs/issues with one of three allowed reasons
+# (implemented_on_main / cannot_reproduce / incoherent). Full contract in
+# prompts/sweeper.md. Upstream scale: 7,149 verdicts; 3,121 PRs closed as
+# implemented-on-main; risk labels on the entire inbound queue.
+#
+# TIER 2 POSTURE — CLOSE AUTHORITY: SWEEPER_ALLOW_CLOSES=1. The sweeper
+# executes high-confidence closes within the three-reason policy. Two
+# safety interlocks: (1) adopt this ONLY after running the tier1
+# recommend-only posture for a few weeks and auditing its verdicts;
+# (2) the maintainer roster (contributors/maintainers.txt) ships EMPTY —
+# until you list your humans there, the sweeper still refuses to close
+# (and never touches their items once listed). The circuit breaker and
+# marker audit trail are the rollback plan.
+#
+# Guardrails baked in:
+#   - Never closes items authored by maintainers (roster:
+#     contributors/maintainers.txt)
+#   - Max SWEEPER_MAX_CLOSES per run (circuit breaker)
+#   - Idempotent via HTML marker comments
+#   - High-confidence closes only; everything else → labels/needs-decision
+#   - Runs from main's copy of the scripts/prompts only (never PR code)
+#
+# Secrets: AI_REVIEW_API_KEY (+ optional AI_REVIEW_BASE_URL/_MODEL vars).
+# Skips gracefully without them.
+#
+# NOTE: the key check lives in a step, not a job-level `if`. We shipped a
+# job-level `if: ${{ secrets.X != '' }}` once and the run failed at ~0s on
+# every trigger; the step-level env check has been robust since. (The docs
+# technically allow `secrets` in job-level `if`, but it misbehaved for us —
+# the step pattern is the battle-tested one.)
+
+on:
+  schedule:
+    - cron: "17 */6 * * *" # every 6h at :17 (avoid on-the-hour congestion)
+  workflow_dispatch:
+    inputs:
+      max_items:
+        description: "Max items to examine this run"
+        default: "30"
+      max_closes:
+        description: "Max closes allowed this run"
+        default: "10"
+
+permissions:
+  contents: read
+  issues: write
+  pull-requests: write
+
+concurrency:
+  group: sweeper
+  cancel-in-progress: false
+
+jobs:
+  sweep:
+    name: Sweep backlog
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Check for API key
+        id: check
+        env:
+          # `secrets` IS available in step-level env — this is the workaround
+          HAS_KEY: ${{ secrets.AI_REVIEW_API_KEY != '' }}
+        run: echo "has_key=$HAS_KEY" >> "$GITHUB_OUTPUT"
+
+      - if: steps.check.outputs.has_key == 'true'
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          persist-credentials: false
+
+      - name: Run sweeper
+        if: steps.check.outputs.has_key == 'true'
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          AI_REVIEW_API_KEY: ${{ secrets.AI_REVIEW_API_KEY }}
+          AI_REVIEW_BASE_URL: ${{ vars.AI_REVIEW_BASE_URL || 'https://api.openai.com/v1' }}
+          AI_REVIEW_MODEL: ${{ vars.AI_REVIEW_MODEL || 'gpt-4o' }}
+          SWEEPER_MAX_TOKENS: ${{ vars.SWEEPER_MAX_TOKENS || '4000' }}
+          SWEEPER_ALLOW_CLOSES: '1'
+          REPO: ${{ github.repository }}
+          MAX_ITEMS: ${{ github.event.inputs.max_items || '30' }}
+          SWEEPER_MAX_CLOSES: ${{ github.event.inputs.max_closes || '10' }}
+        run: python3 scripts/sweeper.py
+
+      - name: Graceful skip
+        if: steps.check.outputs.has_key != 'true'
+        run: echo '::notice::AI_REVIEW_API_KEY not set — sweeper skipped (add the secret to activate).'

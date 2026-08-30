@@ -1,0 +1,53 @@
+name: History Check
+
+# Rejects PRs whose branch has no common ancestor with main.
+#
+# Born from a real incident (hermes-agent PR #25045, May 2026): a branch
+# disconnected from main's history (accidental `git checkout --orphan` or
+# .git re-init) merged cleanly with its intended one-file change — but its
+# parent-less root commit got grafted into main as a SECOND ROOT, and
+# ~1500 files' worth of git blame history collapsed onto that single
+# commit. GitHub's merge UI does not refuse unrelated histories.
+#
+# This check requires `git merge-base` between PR head and main to be
+# non-empty. Cheap insurance; document YOUR incident here when it saves you.
+
+on:
+  workflow_call:
+
+permissions:
+  contents: read
+
+jobs:
+  check-common-ancestor:
+    name: Reject unrelated histories
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      # Checkout the PR HEAD, not the default merge commit: the merge
+      # commit's parents are [main-tip, pr-head], so merge-basing against IT
+      # always finds the main tip and the orphan check passes for exactly
+      # the branches it exists to reject.
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          fetch-depth: 0 # full history both sides for merge-base
+      - name: Verify common ancestor with main
+        run: |
+          set -euo pipefail
+          git fetch origin main --depth=1000
+          if ! BASE=$(git merge-base origin/main HEAD 2>/dev/null) || [ -z "$BASE" ]; then
+            cat <<'MSG'
+          ❌ This PR has no common ancestor with main — its history was
+          disconnected (orphan branch / re-initialized .git). Merging it would
+          graft a second root commit into main and destroy git blame history.
+
+          Fix: rebase your changes onto current main:
+            git fetch origin main
+            git checkout -b fix-branch origin/main
+            # re-apply your changes (cherry-pick, copy files, etc.)
+            git push -f origin fix-branch
+          MSG
+            exit 1
+          fi
+          echo "Common ancestor: $BASE"

@@ -1,0 +1,32 @@
+---
+description: Repo conventions for Cursor agents — mirrors AGENTS.md
+globs:
+alwaysApply: true
+---
+
+# Project Rules (Cursor)
+
+1. **Read `AGENTS.md` first** — it is the intent layer: contribution rubric,
+   the Footprint Ladder (where new capability goes), testing rules, and
+   known pitfalls distilled from real incidents.
+2. **Conventional commits** required: `fix(scope): …`, `feat(scope): …`,
+   `docs:`, `test:`, `refactor:`, `chore:`, `perf:`, `ci:`.
+3. **One logical change per PR.** Branches: `fix/…`, `feat/…`, `docs/…`.
+4. **Never "fix" a missing piece without checking intent** —
+   `git log -p -S "<symbol>"` to find the commit that introduced the gap;
+   the omission may be load-bearing.
+5. **Tests:** assert invariants, not current values; bug fixes require a
+   failing-first test; E2E (real paths) for I/O/config/auth; never write
+   outside temp dirs.
+6. **No new env vars for non-secret config** — behavioral settings go in
+   the config file; env is for credentials only.
+7. **No speculative abstraction** — no hooks/extension points without a
+   concrete consumer.
+8. **Attribution:** add `Co-Authored-By: Cursor <noreply@cursor.com>` (or
+   the agent you delegate to) on commits you author.
+9. **Polyglot layout:** `python/` (uv, ruff, pytest) and `typescript/`
+   (npm, vitest, biome). Keep changes inside the lane you're working on;
+   CI only runs lanes your diff touches.
+10. **Before requesting review:** lint + tests green (`make lint test` at
+    tier 1+, or the underlying tools directly at tier 0), PR template
+    filled, reproduction steps for bugs included.

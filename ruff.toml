@@ -1,0 +1,24 @@
+# Root ruff config — governs repo-wide lint runs (CI runs from here).
+# python/pyproject.toml holds the package-local config for `cd python` runs.
+
+line-length = 100
+target-version = "py311"
+
+[lint]
+select = ["E", "F", "W", "I", "UP", "B", "SIM", "RUF"]
+ignore = ["RUF012"]
+
+[lint.per-file-ignores]
+# Automation scripts are CI one-shots: broad exception capture is the
+# retry contract, naive datetimes are fine (UTC-posted), shebangs are
+# invoked via `python3 x.py` explicitly.
+"scripts/*" = ["BLE001", "DTZ011", "EXE001", "SIM115", "RUF046", "FURB", "UP017"]
+# …including the copies inside the kit tier bundles (same files, deeper path)
+"kit/tier*/**/scripts/*" = ["BLE001", "DTZ011", "EXE001", "SIM115", "RUF046", "FURB", "UP017"]
+# Kit-repo-only CLI tools (installer/selftest) carry long help strings;
+# these paths do not exist in adopting repos, so the ignores are inert.
+"install.py" = ["E501"]
+"kit/*" = ["E501"]
+
+[format]
+# Everything gets formatted — including scripts. Uniform beats clever.

@@ -1,0 +1,43 @@
+name: Bug Report
+description: Report something that doesn't work as expected
+labels: ["type/bug", "P2"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        **Before you file:** search existing issues — duplicates help nobody
+        (not even the AI triage). Include enough detail that a maintainer
+        (or the automated triage) can reproduce the bug from your report
+        alone. Vague reports cannot be verified and will sit untriaged.
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What happened?
+      description: A clear description of the symptom. What did you expect instead?
+      placeholder: "The CLI crashes with KeyError when…"
+    validations:
+      required: true
+  - type: textarea
+    id: repro
+    attributes:
+      label: Steps to reproduce
+      description: Numbered steps, exact commands, minimal config. If we can't run it, we can't fix it.
+      placeholder: |
+        1. Install with config X
+        2. Run `…`
+        3. Observe error
+    validations:
+      required: true
+  - type: textarea
+    id: environment
+    attributes:
+      label: Environment
+      description: Version, OS, Python/Node version, provider/model if relevant.
+      placeholder: "v0.x.x, Ubuntu 24.04, Python 3.12"
+    validations:
+      required: true
+  - type: textarea
+    id: logs
+    attributes:
+      label: Logs / screenshots
+      description: Any stack traces or screenshots. Redact secrets.
