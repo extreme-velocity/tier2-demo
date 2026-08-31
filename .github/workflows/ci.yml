@@ -1,6 +1,6 @@
 name: CI
 
-# Lane-based CI with a single aggregate gate — the tier0 core.
+# Lane-based CI (label-gate e2e demo) with a single aggregate gate — the tier0 core.
 #
 # Patterns (from hermes-agent, scaled to any repo):
 #   1. `detect` classifies the diff into lanes; every downstream job gates
