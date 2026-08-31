@@ -28,6 +28,7 @@ import contextlib
 import json
 import os
 import re
+import subprocess
 import sys
 import time
 import urllib.error
@@ -132,6 +133,28 @@ def extract_verdict_json(raw):
     return None
 
 
+def repo_tree():
+    """File listing for the sweep prompt.
+
+    e2e-discovered gap: without repo context the sweeper CANNOT honestly
+    verify `implemented_on_main` — it either keeps everything open (safe
+    but useless) or hallucinates a close (dangerous). The file tree gives
+    the model real signal to correlate an item's request against what
+    already exists on main."""
+    try:
+        out = subprocess.run(
+            ["git", "ls-files"], capture_output=True, text=True, timeout=10
+        ).stdout.strip()
+        if out:
+            files = out.splitlines()
+            return "\n".join(files[:400]) + (
+                f"\n… (+{len(files) - 400} more)" if len(files) > 400 else ""
+            )
+    except Exception:
+        pass
+    return "(file listing unavailable)"
+
+
 def load_maintainers():
     """Maintainer logins: contributors/maintainers.txt (one per line, # =
     comment) or SWEEPER_MAINTAINERS="a,b". Empty set → sweeper cannot close."""
@@ -178,6 +201,7 @@ def main():
     dry_run = os.environ.get("SWEEPER_DRY_RUN") == "1"
     closes_done = 0
     processed = 0
+    tree = repo_tree()
 
     # Candidate queue: stale open PRs + issues (oldest-touched first)
     candidates = []
@@ -237,6 +261,10 @@ def main():
 Author: {c["author"]}
 Body:
 {c["body"]}
+
+Repository file listing on current main (use it to check whether the
+request is already implemented — cite the exact path when it is):
+{tree}
 
 Respond with the JSON verdict object only."""
         try:
