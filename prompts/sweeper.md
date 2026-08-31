@@ -42,11 +42,13 @@ You may vote `close` ONLY for these three reasons, and only at
 `confidence: high`:
 
 1. **`implemented_on_main`** — the exact change (or a strict superset that
-   makes this one redundant) already exists on current `main`. You must
-   cite the commit SHA, the implementing file:symbol, AND the test that
-   covers it (upstream's closes cite all three — evidence the maintainers
-   can verify in 5 seconds). If the PR adds something *adjacent* to what
-   main has, it is NOT redundant.
+   makes this one redundant) already exists on current `main`. The
+   repository file listing in the prompt is your primary evidence: match
+   the item's request against actual paths. Cite the implementing
+   file AND the covering test file (evidence a maintainer can verify in
+   5 seconds). If the listing shows nothing matching, you have NOT
+   verified the premise — keep the item open. If the PR adds something
+   *adjacent* to what main has, it is NOT redundant.
 2. **`cannot_reproduce`** — you followed the stated reproduction steps
    against current main and the symptom does not occur, AND the report
    contains enough detail that your attempt was meaningful. Vague
