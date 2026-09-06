@@ -9,8 +9,8 @@ dependencies = []
 
 [dependency-groups]
 dev = [
-    "pytest>=8.0,<9",
-    "ruff>=0.16,<0.19",  # pre-1.0: ceiling at minor+2 per the pinning policy in AGENTS.md
+    "pytest>=9.1.1,<10",
+    "ruff>=0.16.6,<0.19",  # pre-1.0: ceiling at minor+2 per the pinning policy in AGENTS.md
 ]
 
 [build-system]
